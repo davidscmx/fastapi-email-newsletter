@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
@@ -9,6 +10,10 @@ from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
@@ -54,18 +59,34 @@ async def subscribe(request: Request, subscriber: Subscriber):
 
         return {"message": "Subscription successful! Welcome email sent."}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to add subscriber to Resend audience")
+        logger.error(f"Failed to add subscriber to Resend audience: {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to add subscriber to Resend audience: {e.response.text}")
     except Exception as e:
+        logger.error(f"An error occurred during subscription: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred during subscription")
 
 @app.post("/unsubscribe")
 @limiter.limit("3/minute")
 async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
     try:
-        # Update subscriber status in Resend audience
         async with httpx.AsyncClient() as client:
+            # Get contact information
+            response = await client.get(
+                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
+                params={"email": unsubscriber.email},
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+            )
+            response.raise_for_status()
+            contacts = response.json()
+
+            if not contacts:
+                raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
+
+            contact = contacts[0]  # Assuming the first contact is the one we want
+
+            # Update contact's unsubscribed status
             response = await client.patch(
-                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{unsubscriber.email}",
+                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{contact['id']}",
                 json={"unsubscribed": True},
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
@@ -76,10 +97,12 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
 
         return {"message": "Unsubscribe successful! Confirmation email sent."}
     except httpx.HTTPStatusError as e:
+        logger.error(f"Failed to update subscriber status: {e.response.text}")
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to update subscriber status in Resend audience")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to update subscriber status: {e.response.text}")
     except Exception as e:
+        logger.error(f"An error occurred during unsubscription: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred during unsubscription")
 
 async def send_welcome_email(subscriber: Subscriber):
@@ -100,7 +123,7 @@ async def send_welcome_email(subscriber: Subscriber):
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        print(f"Failed to send welcome email: {e}")
+        logger.error(f"Failed to send welcome email: {e.response.text}")
 
 async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
     try:
@@ -120,7 +143,7 @@ async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        print(f"Failed to send unsubscribe confirmation email: {e}")
+        logger.error(f"Failed to send unsubscribe confirmation email: {e.response.text}")
 
 if __name__ == "__main__":
     import uvicorn
