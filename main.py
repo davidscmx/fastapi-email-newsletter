@@ -63,6 +63,7 @@ async def root():
 @limiter.limit("3/minute")
 async def subscribe(request: Request, subscriber: Subscriber):
     try:
+        logger.info(f"Starting subscription process for email: {subscriber.email}")
         # Check if the subscriber already exists
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -109,6 +110,7 @@ async def subscribe(request: Request, subscriber: Subscriber):
         # Send welcome email
         await send_welcome_email(subscriber)
 
+        logger.info(f"Subscription process completed successfully for email: {subscriber.email}")
         return {"message": "Subscription successful! Welcome email sent."}
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error occurred during subscription process: {e.response.status_code} - {e.response.text}")
