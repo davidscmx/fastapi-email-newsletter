@@ -1,14 +1,19 @@
 import os
 import logging
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 import httpx
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
+import secrets
 
 load_dotenv()
 
@@ -22,6 +27,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.mount("/static", StaticFiles(directory="."), name="static")
 
+security = HTTPBasic()
+
 class Subscriber(BaseModel):
     email: EmailStr
     firstName: str
@@ -33,6 +40,8 @@ class Unsubscriber(BaseModel):
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 RESEND_AUDIENCE_ID = os.getenv("RESEND_AUDIENCE_ID")
 RESEND_API_URL = "https://api.resend.com"
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "password")
 
 EMAIL_CONFIG = {
     "email_subject": os.getenv("EMAIL_SUBJECT", "Welcome to Our Awesome Newsletter!"),
@@ -44,6 +53,17 @@ EMAIL_CONFIG = {
     "closing_message": os.getenv("EMAIL_CLOSING_MESSAGE", "If you have any questions or feedback, feel free to reply to this email."),
     "team_name": os.getenv("EMAIL_TEAM_NAME", "The Newsletter Team")
 }
+
+scheduler = AsyncIOScheduler()
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler.start()
+    scheduler.add_job(send_scheduled_newsletter, trigger=CronTrigger(day_of_week="mon", hour=9, minute=0))
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -235,6 +255,83 @@ async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
         logger.error(f"Failed to send unsubscribe confirmation email: {e.response.text}", exc_info=True)
     except Exception as e:
         logger.error(f"An unexpected error occurred while sending unsubscribe confirmation email: {str(e)}", exc_info=True)
+
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(username: str = Depends(get_current_username)):
+    subscribers = await get_subscribers()
+    return f"""
+    <html>
+        <head>
+            <title>Admin Panel</title>
+        </head>
+        <body>
+            <h1>Admin Panel</h1>
+            <h2>Subscribers</h2>
+            <ul>
+                {"".join(f"<li>{sub['email']} - {sub['first_name']} {sub['last_name']}</li>" for sub in subscribers)}
+            </ul>
+            <h2>Send Newsletter</h2>
+            <form action="/admin/send-newsletter" method="post">
+                <textarea name="content" rows="10" cols="50"></textarea><br>
+                <input type="submit" value="Send Newsletter">
+            </form>
+        </body>
+    </html>
+    """
+
+@app.post("/admin/send-newsletter")
+async def send_newsletter(content: str = Form(...), username: str = Depends(get_current_username)):
+    subscribers = await get_subscribers()
+    for subscriber in subscribers:
+        await send_email(subscriber['email'], "Newsletter", content)
+    return {"message": f"Newsletter sent to {len(subscribers)} subscribers"}
+
+async def get_subscribers():
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+        )
+        response.raise_for_status()
+        return response.json().get('data', [])
+
+async def send_email(to_email: str, subject: str, content: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{RESEND_API_URL}/emails",
+            json={
+                "from": "onboarding@resend.dev",
+                "to": to_email,
+                "subject": subject,
+                "html": content
+            },
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+        )
+        response.raise_for_status()
+        return response.json()
+
+async def send_scheduled_newsletter():
+    logger.info("Sending scheduled newsletter")
+    subscribers = await get_subscribers()
+    content = f"""
+    <h1>Your Weekly Newsletter</h1>
+    <p>Here's your weekly update from us!</p>
+    <p>Date: {datetime.now().strftime('%Y-%m-%d')}</p>
+    """
+    for subscriber in subscribers:
+        await send_email(subscriber['email'], "Weekly Newsletter", content)
+    logger.info(f"Scheduled newsletter sent to {len(subscribers)} subscribers")
 
 if __name__ == "__main__":
     import uvicorn
