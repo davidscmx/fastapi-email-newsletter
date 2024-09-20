@@ -11,6 +11,8 @@ app = FastAPI()
 
 class Subscriber(BaseModel):
     email: EmailStr
+    firstName: str
+    lastName: str
 
 # Resend API configuration
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
@@ -28,13 +30,17 @@ async def subscribe(subscriber: Subscriber):
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
-                json={"email": subscriber.email},
+                json={
+                    "email": subscriber.email,
+                    "first_name": subscriber.firstName,
+                    "last_name": subscriber.lastName
+                },
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
 
         # Send welcome email
-        await send_welcome_email(subscriber.email)
+        await send_welcome_email(subscriber)
 
         return {"message": "Subscription successful! Welcome email sent."}
     except httpx.HTTPStatusError as e:
@@ -42,16 +48,19 @@ async def subscribe(subscriber: Subscriber):
     except Exception as e:
         raise HTTPException(status_code=500, detail="An error occurred during subscription")
 
-async def send_welcome_email(email: str):
+async def send_welcome_email(subscriber: Subscriber):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{RESEND_API_URL}/emails",
                 json={
                     "from": "newsletter@yourdomain.com",
-                    "to": email,
+                    "to": subscriber.email,
                     "subject": "Welcome to Our Newsletter!",
-                    "html": "<h1>Welcome to Our Newsletter!</h1><p>Thank you for subscribing. We're excited to have you on board!</p>"
+                    "html": f"""
+                    <h1>Welcome to Our Newsletter, {subscriber.firstName}!</h1>
+                    <p>Thank you for subscribing, {subscriber.firstName} {subscriber.lastName}. We're excited to have you on board!</p>
+                    """
                 },
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
