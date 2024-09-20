@@ -54,7 +54,7 @@ async def send_welcome_email(subscriber: Subscriber):
             response = await client.post(
                 f"{RESEND_API_URL}/emails",
                 json={
-                    "from": "newsletter@yourdomain.com",
+                    "from": "onboarding@resend.dev",
                     "to": subscriber.email,
                     "subject": "Welcome to Our Newsletter!",
                     "html": f"""
