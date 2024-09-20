@@ -1,13 +1,19 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 import httpx
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv()
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 class Subscriber(BaseModel):
     email: EmailStr
@@ -24,7 +30,8 @@ async def root():
     return {"message": "Welcome to the Newsletter Subscription Service"}
 
 @app.post("/subscribe")
-async def subscribe(subscriber: Subscriber):
+@limiter.limit("5/minute")
+async def subscribe(request: Request, subscriber: Subscriber):
     try:
         # Add subscriber to Resend audience
         async with httpx.AsyncClient() as client:
