@@ -71,6 +71,7 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
     try:
         async with httpx.AsyncClient() as client:
             # Get contact information
+            logger.info(f"Fetching contact information for email: {unsubscriber.email}")
             response = await client.get(
                 f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
                 params={"email": unsubscriber.email},
@@ -78,32 +79,37 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
             )
             response.raise_for_status()
             contacts = response.json()
+            logger.info(f"Received contacts: {contacts}")
 
             if not contacts:
+                logger.warning(f"Email not found in subscriber list: {unsubscriber.email}")
                 raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
 
             contact = contacts[0]  # Assuming the first contact is the one we want
+            logger.info(f"Found contact: {contact}")
 
             # Update contact's unsubscribed status
+            logger.info(f"Updating unsubscribed status for contact ID: {contact['id']}")
             response = await client.patch(
                 f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{contact['id']}",
                 json={"unsubscribed": True},
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
+            logger.info("Successfully updated unsubscribed status")
 
         # Send unsubscribe confirmation email
         await send_unsubscribe_confirmation_email(unsubscriber)
 
         return {"message": "Unsubscribe successful! Confirmation email sent."}
     except httpx.HTTPStatusError as e:
-        logger.error(f"Failed to update subscriber status: {e.response.text}")
+        logger.error(f"HTTP error occurred during unsubscription: {e.response.status_code} - {e.response.text}")
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
         raise HTTPException(status_code=e.response.status_code, detail=f"Failed to update subscriber status: {e.response.text}")
     except Exception as e:
-        logger.error(f"An error occurred during unsubscription: {str(e)}")
-        raise HTTPException(status_code=500, detail="An error occurred during unsubscription")
+        logger.error(f"An error occurred during unsubscription: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An error occurred during unsubscription: {str(e)}")
 
 async def send_welcome_email(subscriber: Subscriber):
     try:
