@@ -30,7 +30,7 @@ async def root():
     return {"message": "Welcome to the Newsletter Subscription Service"}
 
 @app.post("/subscribe")
-@limiter.limit("5/minute")
+@limiter.limit("3/minute")  # Updated from 5/minute to 3/minute
 async def subscribe(request: Request, subscriber: Subscriber):
     try:
         # Add subscriber to Resend audience
