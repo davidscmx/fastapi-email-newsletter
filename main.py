@@ -1,6 +1,8 @@
 import os
 import logging
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 import httpx
@@ -20,6 +22,9 @@ app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Mount the static files directory
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 class Subscriber(BaseModel):
     email: EmailStr
     firstName: str
@@ -33,9 +38,10 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 RESEND_AUDIENCE_ID = os.getenv("RESEND_AUDIENCE_ID")
 RESEND_API_URL = "https://api.resend.com"
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return {"message": "Welcome to the Newsletter Subscription Service"}
+    with open("index.html", "r") as f:
+        return f.read()
 
 @app.post("/subscribe")
 @limiter.limit("3/minute")
