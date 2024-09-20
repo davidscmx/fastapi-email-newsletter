@@ -29,7 +29,7 @@
         button:hover {
             background-color: #0056b3;
         }
-        #message {
+        #message, #unsubscribeMessage {
             margin-top: 20px;
             padding: 10px;
             border-radius: 5px;
@@ -53,6 +53,13 @@
         <button type="submit">Subscribe</button>
     </form>
     <p id="message"></p>
+
+    <h2>Unsubscribe from Our Newsletter</h2>
+    <form id="unsubscribeForm">
+        <input type="email" id="unsubscribeEmail" name="email" placeholder="Email" required>
+        <button type="submit">Unsubscribe</button>
+    </form>
+    <p id="unsubscribeMessage"></p>
 
     <script>
         document.getElementById('subscriptionForm').addEventListener('submit', async (e) => {
@@ -82,6 +89,36 @@
                         // Successful new subscription
                         e.target.reset();
                     }
+                } else {
+                    messageElement.className = 'error';
+                }
+            } catch (error) {
+                messageElement.textContent = 'An error occurred. Please try again.';
+                messageElement.className = 'error';
+            }
+        });
+
+        document.getElementById('unsubscribeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            const messageElement = document.getElementById('unsubscribeMessage');
+            
+            try {
+                const response = await fetch('/unsubscribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+                
+                const result = await response.json();
+                messageElement.textContent = result.message;
+                
+                if (response.ok) {
+                    messageElement.className = 'success';
+                    e.target.reset();
                 } else {
                     messageElement.className = 'error';
                 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Our Newsletter!</title>
+    <title>{email_subject}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -23,26 +23,24 @@
             max-width: 200px;
         }
         h1 {
-            color: #007bff;
+            color: {header_color};
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">
-            <img src="https://example.com/logo.png" alt="Company Logo">
+            <img src="{logo_url}" alt="Company Logo">
         </div>
-        <h1>Welcome to Our Newsletter, {first_name}!</h1>
+        <h1>{main_heading}</h1>
         <p>Dear {first_name} {last_name},</p>
-        <p>Thank you for subscribing to our newsletter. We're excited to have you on board!</p>
+        <p>{welcome_message}</p>
         <p>Here's what you can expect from us:</p>
         <ul>
-            <li>Weekly updates on industry trends</li>
-            <li>Exclusive content and offers</li>
-            <li>Tips and tricks to help you succeed</li>
+            {expectations}
         </ul>
-        <p>If you have any questions or feedback, feel free to reply to this email.</p>
-        <p>Best regards,<br>The Newsletter Team</p>
+        <p>{closing_message}</p>
+        <p>Best regards,<br>{team_name}</p>
     </div>
 </body>
 </html>

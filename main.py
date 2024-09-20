@@ -38,6 +38,22 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 RESEND_AUDIENCE_ID = os.getenv("RESEND_AUDIENCE_ID")
 RESEND_API_URL = "https://api.resend.com"
 
+# Email template configuration
+EMAIL_CONFIG = {
+    "email_subject": "Welcome to Our Awesome Newsletter!",
+    "header_color": "#007bff",
+    "logo_url": "https://example.com/logo.png",
+    "main_heading": "Welcome to Our Newsletter, {first_name}!",
+    "welcome_message": "Thank you for subscribing to our newsletter. We're excited to have you on board!",
+    "expectations": [
+        "Weekly updates on industry trends",
+        "Exclusive content and offers",
+        "Tips and tricks to help you succeed"
+    ],
+    "closing_message": "If you have any questions or feedback, feel free to reply to this email.",
+    "team_name": "The Newsletter Team"
+}
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     with open("index.html", "r") as f:
@@ -140,10 +156,21 @@ async def send_welcome_email(subscriber: Subscriber):
         with open("welcome_email_template.html", "r") as f:
             template = f.read()
 
+        # Prepare expectations list
+        expectations_html = "".join([f"<li>{item}</li>" for item in EMAIL_CONFIG["expectations"]])
+
         # Replace placeholders with actual values
         html_content = template.format(
+            email_subject=EMAIL_CONFIG["email_subject"],
+            header_color=EMAIL_CONFIG["header_color"],
+            logo_url=EMAIL_CONFIG["logo_url"],
+            main_heading=EMAIL_CONFIG["main_heading"].format(first_name=subscriber.firstName),
             first_name=subscriber.firstName,
-            last_name=subscriber.lastName
+            last_name=subscriber.lastName,
+            welcome_message=EMAIL_CONFIG["welcome_message"],
+            expectations=expectations_html,
+            closing_message=EMAIL_CONFIG["closing_message"],
+            team_name=EMAIL_CONFIG["team_name"]
         )
 
         async with httpx.AsyncClient() as client:
@@ -152,7 +179,7 @@ async def send_welcome_email(subscriber: Subscriber):
                 json={
                     "from": "onboarding@resend.dev",
                     "to": subscriber.email,
-                    "subject": "Welcome to Our Newsletter!",
+                    "subject": EMAIL_CONFIG["email_subject"],
                     "html": html_content
                 },
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
