@@ -20,6 +20,9 @@ class Subscriber(BaseModel):
     firstName: str
     lastName: str
 
+class Unsubscriber(BaseModel):
+    email: EmailStr
+
 # Resend API configuration
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 RESEND_AUDIENCE_ID = os.getenv("RESEND_AUDIENCE_ID")
@@ -30,7 +33,7 @@ async def root():
     return {"message": "Welcome to the Newsletter Subscription Service"}
 
 @app.post("/subscribe")
-@limiter.limit("3/minute")  # Updated from 5/minute to 3/minute
+@limiter.limit("3/minute")
 async def subscribe(request: Request, subscriber: Subscriber):
     try:
         # Add subscriber to Resend audience
@@ -55,6 +58,29 @@ async def subscribe(request: Request, subscriber: Subscriber):
     except Exception as e:
         raise HTTPException(status_code=500, detail="An error occurred during subscription")
 
+@app.post("/unsubscribe")
+@limiter.limit("3/minute")
+async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
+    try:
+        # Remove subscriber from Resend audience
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{unsubscriber.email}",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+            )
+            response.raise_for_status()
+
+        # Send unsubscribe confirmation email
+        await send_unsubscribe_confirmation_email(unsubscriber)
+
+        return {"message": "Unsubscribe successful! Confirmation email sent."}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to remove subscriber from Resend audience")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An error occurred during unsubscription")
+
 async def send_welcome_email(subscriber: Subscriber):
     try:
         async with httpx.AsyncClient() as client:
@@ -74,8 +100,26 @@ async def send_welcome_email(subscriber: Subscriber):
             response.raise_for_status()
     except httpx.HTTPStatusError as e:
         print(f"Failed to send welcome email: {e}")
-        # We don't raise an exception here to avoid breaking the subscription process
-        # if email sending fails
+
+async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{RESEND_API_URL}/emails",
+                json={
+                    "from": "onboarding@resend.dev",
+                    "to": unsubscriber.email,
+                    "subject": "Unsubscribe Confirmation",
+                    "html": f"""
+                    <h1>Unsubscribe Confirmation</h1>
+                    <p>You have been successfully unsubscribed from our newsletter. We're sorry to see you go!</p>
+                    """
+                },
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        print(f"Failed to send unsubscribe confirmation email: {e}")
 
 if __name__ == "__main__":
     import uvicorn
