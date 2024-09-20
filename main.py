@@ -136,6 +136,16 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
 
 async def send_welcome_email(subscriber: Subscriber):
     try:
+        # Read the email template
+        with open("welcome_email_template.html", "r") as f:
+            template = f.read()
+
+        # Replace placeholders with actual values
+        html_content = template.format(
+            first_name=subscriber.firstName,
+            last_name=subscriber.lastName
+        )
+
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{RESEND_API_URL}/emails",
@@ -143,16 +153,15 @@ async def send_welcome_email(subscriber: Subscriber):
                     "from": "onboarding@resend.dev",
                     "to": subscriber.email,
                     "subject": "Welcome to Our Newsletter!",
-                    "html": f"""
-                    <h1>Welcome to Our Newsletter, {subscriber.firstName}!</h1>
-                    <p>Thank you for subscribing, {subscriber.firstName} {subscriber.lastName}. We're excited to have you on board!</p>
-                    """
+                    "html": html_content
                 },
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to send welcome email: {e.response.text}")
+    except Exception as e:
+        logger.error(f"An error occurred while sending welcome email: {str(e)}")
 
 async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
     try:
