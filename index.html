@@ -29,6 +29,19 @@
         button:hover {
             background-color: #0056b3;
         }
+        #message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -46,6 +59,7 @@
             e.preventDefault();
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData.entries());
+            const messageElement = document.getElementById('message');
             
             try {
                 const response = await fetch('/subscribe', {
@@ -57,12 +71,23 @@
                 });
                 
                 const result = await response.json();
-                document.getElementById('message').textContent = result.message;
+                messageElement.textContent = result.message;
+                
                 if (response.ok) {
-                    e.target.reset();
+                    messageElement.className = 'success';
+                    if (result.message.includes('already subscribed')) {
+                        // User is already subscribed
+                        messageElement.className = 'error';
+                    } else {
+                        // Successful new subscription
+                        e.target.reset();
+                    }
+                } else {
+                    messageElement.className = 'error';
                 }
             } catch (error) {
-                document.getElementById('message').textContent = 'An error occurred. Please try again.';
+                messageElement.textContent = 'An error occurred. Please try again.';
+                messageElement.className = 'error';
             }
         });
     </script>

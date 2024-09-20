@@ -47,6 +47,19 @@ async def root():
 @limiter.limit("3/minute")
 async def subscribe(request: Request, subscriber: Subscriber):
     try:
+        # Check if the subscriber already exists
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
+                params={"email": subscriber.email},
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+            )
+            response.raise_for_status()
+            contacts = response.json().get('data', [])
+            
+            if any(contact['email'] == subscriber.email for contact in contacts):
+                return {"message": "Thank you for your enthusiasm, you are already subscribed."}
+
         # Add subscriber to Resend audience
         async with httpx.AsyncClient() as client:
             response = await client.post(
