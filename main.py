@@ -62,10 +62,11 @@ async def subscribe(request: Request, subscriber: Subscriber):
 @limiter.limit("3/minute")
 async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
     try:
-        # Remove subscriber from Resend audience
+        # Update subscriber status in Resend audience
         async with httpx.AsyncClient() as client:
-            response = await client.delete(
+            response = await client.patch(
                 f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{unsubscriber.email}",
+                json={"unsubscribed": True},
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
@@ -77,7 +78,7 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Email not found in the subscriber list")
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to remove subscriber from Resend audience")
+        raise HTTPException(status_code=e.response.status_code, detail="Failed to update subscriber status in Resend audience")
     except Exception as e:
         raise HTTPException(status_code=500, detail="An error occurred during unsubscription")
 
