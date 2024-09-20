@@ -73,32 +73,49 @@ async def subscribe(request: Request, subscriber: Subscriber):
             response.raise_for_status()
             contacts = response.json().get('data', [])
             
-            if any(contact['email'] == subscriber.email for contact in contacts):
-                return {"message": "Thank you for your enthusiasm, you are already subscribed."}
-
-        # Add subscriber to Resend audience
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
-                json={
-                    "email": subscriber.email,
-                    "first_name": subscriber.firstName,
-                    "last_name": subscriber.lastName
-                },
-                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
-            )
-            response.raise_for_status()
+            existing_contact = next((contact for contact in contacts if contact['email'] == subscriber.email), None)
+            
+            if existing_contact:
+                # Update existing subscriber's status
+                logger.info(f"Updating existing subscriber: {subscriber.email}")
+                response = await client.patch(
+                    f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts/{existing_contact['id']}",
+                    json={
+                        "first_name": subscriber.firstName,
+                        "last_name": subscriber.lastName,
+                        "unsubscribed": False
+                    },
+                    headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully updated subscriber: {subscriber.email}")
+                return {"message": "Your subscription has been updated. Welcome back!"}
+            else:
+                # Add new subscriber to Resend audience
+                logger.info(f"Adding new subscriber: {subscriber.email}")
+                response = await client.post(
+                    f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
+                    json={
+                        "email": subscriber.email,
+                        "first_name": subscriber.firstName,
+                        "last_name": subscriber.lastName,
+                        "unsubscribed": False
+                    },
+                    headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully added new subscriber: {subscriber.email}")
 
         # Send welcome email
         await send_welcome_email(subscriber)
 
         return {"message": "Subscription successful! Welcome email sent."}
     except httpx.HTTPStatusError as e:
-        logger.error(f"Failed to add subscriber to Resend audience: {e.response.text}")
-        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to add subscriber to Resend audience: {e.response.text}")
+        logger.error(f"HTTP error occurred during subscription process: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to process subscription: {e.response.text}")
     except Exception as e:
-        logger.error(f"An error occurred during subscription: {str(e)}")
-        raise HTTPException(status_code=500, detail="An error occurred during subscription")
+        logger.error(f"An unexpected error occurred during subscription: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during subscription")
 
 @app.post("/unsubscribe")
 @limiter.limit("3/minute")
@@ -147,8 +164,8 @@ async def unsubscribe(request: Request, unsubscriber: Unsubscriber):
         logger.error(f"HTTP error occurred during unsubscription: {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Failed to update subscriber status: {e.response.text}")
     except Exception as e:
-        logger.error(f"An error occurred during unsubscription: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An error occurred during unsubscription: {str(e)}")
+        logger.error(f"An unexpected error occurred during unsubscription: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during unsubscription: {str(e)}")
 
 async def send_welcome_email(subscriber: Subscriber):
     try:
@@ -185,10 +202,11 @@ async def send_welcome_email(subscriber: Subscriber):
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
+        logger.info(f"Welcome email sent successfully to: {subscriber.email}")
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to send welcome email: {e.response.text}")
     except Exception as e:
-        logger.error(f"An error occurred while sending welcome email: {str(e)}")
+        logger.error(f"An unexpected error occurred while sending welcome email: {str(e)}", exc_info=True)
 
 async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
     try:
@@ -207,8 +225,11 @@ async def send_unsubscribe_confirmation_email(unsubscriber: Unsubscriber):
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
             )
             response.raise_for_status()
+        logger.info(f"Unsubscribe confirmation email sent successfully to: {unsubscriber.email}")
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to send unsubscribe confirmation email: {e.response.text}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while sending unsubscribe confirmation email: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
     import uvicorn
