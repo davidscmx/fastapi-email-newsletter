@@ -1,18 +1,17 @@
 import logging
-import os
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from models import Subscriber, Unsubscriber
+from models import Subscriber, Unsubscriber, ABTestConfig
 from config import RESEND_API_KEY, RESEND_AUDIENCE_ID
 from email_service import send_email
-from subscription_service import subscribe, unsubscribe, get_subscribers
+from subscription_service import subscribe, unsubscribe, get_subscribers, get_subscriber_preferences
 from utils import limiter, setup_rate_limiting
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
-import secrets
+from analytics import analytics
+import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -23,16 +22,14 @@ setup_rate_limiting(app)
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 scheduler = AsyncIOScheduler()
-security = HTTPBasic()
 
-# Load admin credentials from environment variables
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "change_this_password")
+ab_test_config = ABTestConfig(subject_a="Your Weekly Newsletter", subject_b="This Week's Exciting Updates")
 
 @app.on_event("startup")
 async def startup_event():
     scheduler.start()
     scheduler.add_job(send_scheduled_newsletter, trigger=CronTrigger(day_of_week="mon", hour=9, minute=0))
+    scheduler.add_job(analytics.update_analytics, trigger=CronTrigger(hour='*'))  # Update analytics every hour
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -47,64 +44,72 @@ async def root():
 @app.post("/subscribe")
 @limiter.limit("3/minute")
 async def subscribe_route(request: Request, subscriber: Subscriber):
-    return await subscribe(subscriber)
+    result = await subscribe(subscriber)
+    await analytics.update_analytics()
+    return result
 
 @app.post("/unsubscribe")
 @limiter.limit("3/minute")
 async def unsubscribe_route(request: Request, unsubscriber: Unsubscriber):
-    return await unsubscribe(unsubscriber)
+    result = await unsubscribe(unsubscriber)
+    await analytics.update_analytics()
+    return result
 
-def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
-    logger.info(f"Attempting authentication for user: {credentials.username}")
-    logger.info(f"Expected username: {ADMIN_USERNAME}")
-    correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
-    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
-    
-    if not (correct_username and correct_password):
-        logger.warning(f"Authentication failed for user '{credentials.username}'")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    
-    logger.info(f"Authentication successful for user '{credentials.username}'")
-    return credentials.username
+@app.get("/analytics")
+async def get_analytics():
+    await analytics.update_analytics()
+    return JSONResponse(analytics.get_analytics_report())
 
-@app.get("/admin/stats")
-async def admin_stats(username: str = Depends(get_current_username)):
-    logger.info(f"Fetching admin stats for user '{username}'")
-    subscribers = await get_subscribers()
-    total_subscribers = len(subscribers)
-    active_subscribers = sum(1 for sub in subscribers if not sub.get('unsubscribed', False))
-    return JSONResponse({
-        "total_subscribers": total_subscribers,
-        "active_subscribers": active_subscribers,
-        "inactive_subscribers": total_subscribers - active_subscribers
-    })
+@app.get("/preferences/{email}")
+async def get_preferences(email: str):
+    preferences = await get_subscriber_preferences(email)
+    if preferences is None:
+        return JSONResponse({"error": "Subscriber not found"}, status_code=404)
+    return JSONResponse({"preferences": preferences})
 
 async def send_scheduled_newsletter():
     logger.info("Sending scheduled newsletter")
     subscribers = await get_subscribers()
     active_subscribers = [sub for sub in subscribers if not sub.get('unsubscribed', False)]
     
-    content = f"""
-    <h1>Your Weekly Newsletter</h1>
-    <p>Here's your weekly update from us!</p>
-    <p>Date: {datetime.now().strftime('%Y-%m-%d')}</p>
-    <p>This week's highlights:</p>
-    <ul>
-        <li>New feature: Customizable email templates</li>
-        <li>Upcoming event: Tech Talk on AI in Newsletter Management</li>
-        <li>Tips: How to increase your newsletter engagement</li>
-    </ul>
-    <p>Stay tuned for more exciting updates!</p>
-    """
-    
     for subscriber in active_subscribers:
-        await send_email(subscriber['email'], "Your Weekly Newsletter", content)
+        content = await generate_personalized_content(subscriber)
+        subject = choose_ab_test_subject(subscriber['email'])
+        await send_email(subscriber['email'], subject, content)
     
     logger.info(f"Scheduled newsletter sent to {len(active_subscribers)} active subscribers")
+    await analytics.update_analytics()
+
+async def generate_personalized_content(subscriber):
+    first_name = subscriber.get('first_name', 'Valued Subscriber')
+    preferences = subscriber.get('data', {}).get('preferences', [])
+    
+    content = f"""
+    <h1>Your Weekly Newsletter</h1>
+    <p>Hello {first_name},</p>
+    <p>Here's your personalized weekly update based on your preferences:</p>
+    """
+
+    if "tech" in preferences:
+        content += "<h2>Tech News</h2><p>Latest updates in the tech world...</p>"
+    if "sports" in preferences:
+        content += "<h2>Sports Updates</h2><p>Exciting sports events this week...</p>"
+    if "entertainment" in preferences:
+        content += "<h2>Entertainment Buzz</h2><p>What's new in the world of entertainment...</p>"
+
+    content += f"""
+    <p>Date: {datetime.now().strftime('%Y-%m-%d')}</p>
+    <p>Stay tuned for more exciting updates tailored just for you!</p>
+    """
+    return content
+
+def choose_ab_test_subject(email: str):
+    # Use the email as a seed for consistent A/B testing
+    random.seed(email)
+    if random.random() < ab_test_config.test_percentage:
+        return ab_test_config.subject_a
+    else:
+        return ab_test_config.subject_b
 
 if __name__ == "__main__":
     import uvicorn

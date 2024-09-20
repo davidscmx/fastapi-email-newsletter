@@ -30,7 +30,8 @@ async def subscribe(subscriber: Subscriber):
                     json={
                         "first_name": subscriber.firstName,
                         "last_name": subscriber.lastName,
-                        "unsubscribed": False
+                        "unsubscribed": False,
+                        "data": {"preferences": subscriber.preferences}
                     },
                     headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
                 )
@@ -46,7 +47,8 @@ async def subscribe(subscriber: Subscriber):
                         "email": subscriber.email,
                         "first_name": subscriber.firstName,
                         "last_name": subscriber.lastName,
-                        "unsubscribed": False
+                        "unsubscribed": False,
+                        "data": {"preferences": subscriber.preferences}
                     },
                     headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
                 )
@@ -138,3 +140,30 @@ async def get_subscribers():
     except Exception as e:
         logger.error(f"An unexpected error occurred while fetching subscribers: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching subscribers")
+
+async def get_subscriber_preferences(email: str):
+    logger.info(f"Fetching preferences for subscriber: {email}")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
+                params={"email": email},
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}"}
+            )
+            response.raise_for_status()
+            contacts = response.json().get('data', [])
+            
+            if not contacts:
+                logger.warning(f"Subscriber not found: {email}")
+                return None
+
+            subscriber = contacts[0]
+            preferences = subscriber.get('data', {}).get('preferences', [])
+            logger.info(f"Successfully fetched preferences for {email}: {preferences}")
+            return preferences
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error occurred while fetching subscriber preferences: {e.response.status_code} - {e.response.text}", exc_info=True)
+        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch subscriber preferences: {e.response.text}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while fetching subscriber preferences: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching subscriber preferences")

@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 500px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -15,7 +15,7 @@
             display: flex;
             flex-direction: column;
         }
-        input {
+        input, select {
             margin-bottom: 10px;
             padding: 5px;
         }
@@ -42,6 +42,12 @@
             background-color: #f8d7da;
             color: #721c24;
         }
+        #analytics {
+            margin-top: 40px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -50,6 +56,11 @@
         <input type="email" id="email" name="email" placeholder="Email" required>
         <input type="text" id="firstName" name="firstName" placeholder="First Name" required>
         <input type="text" id="lastName" name="lastName" placeholder="Last Name" required>
+        <select id="preferences" name="preferences" multiple>
+            <option value="tech">Technology</option>
+            <option value="sports">Sports</option>
+            <option value="entertainment">Entertainment</option>
+        </select>
         <button type="submit">Subscribe</button>
     </form>
     <p id="message"></p>
@@ -61,11 +72,23 @@
     </form>
     <p id="unsubscribeMessage"></p>
 
+    <div id="analytics">
+        <h2>Newsletter Analytics</h2>
+        <p>Total Subscribers: <span id="totalSubscribers">-</span></p>
+        <p>Active Subscribers: <span id="activeSubscribers">-</span></p>
+        <p>Unsubscribed: <span id="unsubscribed">-</span></p>
+        <p>New Subscribers: <span id="newSubscribers">-</span></p>
+        <p>New Unsubscribers: <span id="newUnsubscribers">-</span></p>
+        <p>Last Update: <span id="lastUpdate">-</span></p>
+        <button id="refreshAnalytics">Refresh Analytics</button>
+    </div>
+
     <script>
         document.getElementById('subscriptionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData.entries());
+            data.preferences = Array.from(formData.getAll('preferences'));
             const messageElement = document.getElementById('message');
             
             try {
@@ -96,6 +119,7 @@
                 messageElement.textContent = 'An error occurred. Please try again.';
                 messageElement.className = 'error';
             }
+            await refreshAnalytics();
         });
 
         document.getElementById('unsubscribeForm').addEventListener('submit', async (e) => {
@@ -126,7 +150,29 @@
                 messageElement.textContent = 'An error occurred. Please try again.';
                 messageElement.className = 'error';
             }
+            await refreshAnalytics();
         });
+
+        async function refreshAnalytics() {
+            try {
+                const response = await fetch('/analytics');
+                const data = await response.json();
+                
+                document.getElementById('totalSubscribers').textContent = data.total_subscribers;
+                document.getElementById('activeSubscribers').textContent = data.active_subscribers;
+                document.getElementById('unsubscribed').textContent = data.unsubscribed;
+                document.getElementById('newSubscribers').textContent = data.new_subscribers;
+                document.getElementById('newUnsubscribers').textContent = data.new_unsubscribers;
+                document.getElementById('lastUpdate').textContent = new Date(data.last_update).toLocaleString();
+            } catch (error) {
+                console.error('Error fetching analytics:', error);
+            }
+        }
+
+        document.getElementById('refreshAnalytics').addEventListener('click', refreshAnalytics);
+
+        // Initial analytics refresh
+        refreshAnalytics();
     </script>
 </body>
 </html>

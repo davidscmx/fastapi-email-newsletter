@@ -7,10 +7,6 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 RESEND_AUDIENCE_ID = os.getenv("RESEND_AUDIENCE_ID")
 RESEND_API_URL = "https://api.resend.com"
 
-# IMPORTANT: Set these values in your environment variables for security
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "change_this_password")
-
 EMAIL_CONFIG = {
     "email_subject": os.getenv("EMAIL_SUBJECT", "Welcome to Our Awesome Newsletter!"),
     "header_color": os.getenv("EMAIL_HEADER_COLOR", "#007bff"),
