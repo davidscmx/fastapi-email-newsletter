@@ -66,6 +66,7 @@ async def subscribe(request: Request, subscriber: Subscriber):
         logger.info(f"Starting subscription process for email: {subscriber.email}")
         # Check if the subscriber already exists
         async with httpx.AsyncClient() as client:
+            logger.info(f"Fetching contact information for email: {subscriber.email}")
             response = await client.get(
                 f"{RESEND_API_URL}/audiences/{RESEND_AUDIENCE_ID}/contacts",
                 params={"email": subscriber.email},
@@ -73,6 +74,7 @@ async def subscribe(request: Request, subscriber: Subscriber):
             )
             response.raise_for_status()
             contacts = response.json().get('data', [])
+            logger.info(f"Received contacts data: {contacts}")
             
             existing_contact = next((contact for contact in contacts if contact['email'] == subscriber.email), None)
             
@@ -90,7 +92,7 @@ async def subscribe(request: Request, subscriber: Subscriber):
                 )
                 response.raise_for_status()
                 logger.info(f"Successfully updated subscriber: {subscriber.email}")
-                return {"message": "Your subscription has been updated. Welcome back!"}
+                message = "Your subscription has been updated. Welcome back!"
             else:
                 # Add new subscriber to Resend audience
                 logger.info(f"Adding new subscriber: {subscriber.email}")
@@ -106,12 +108,13 @@ async def subscribe(request: Request, subscriber: Subscriber):
                 )
                 response.raise_for_status()
                 logger.info(f"Successfully added new subscriber: {subscriber.email}")
+                message = "Subscription successful! Welcome to our newsletter."
 
         # Send welcome email
         await send_welcome_email(subscriber)
 
         logger.info(f"Subscription process completed successfully for email: {subscriber.email}")
-        return {"message": "Subscription successful! Welcome email sent."}
+        return {"message": message}
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error occurred during subscription process: {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Failed to process subscription: {e.response.text}")
